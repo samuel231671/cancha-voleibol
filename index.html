@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Cancha de Voleibol</title>
+  <link rel="stylesheet" href="./src/ui.css" />
+  <style>
+    html, body { overflow: hidden; }
+    #scene { position: fixed; inset: 0; }
+    #scene canvas { display: block; }
+    .labels { position: absolute; inset: 0; }
+
+    /* ---------- Panel de la cancha ---------- */
+    .panel {
+      position: fixed; top: 16px; left: 16px; width: 272px; z-index: 12;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+      backdrop-filter: blur(12px); box-shadow: 0 12px 32px rgba(0,0,0,.4);
+      max-height: calc(100dvh - var(--dock-h, 0px) - 40px); overflow-x: hidden; overflow-y: auto;
+      transition: width .28s var(--ease), border-radius .28s var(--ease);
+    }
+    .panel-head {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      padding: 12px 12px 12px 14px; background: none; border: 0; color: inherit;
+      font: inherit; text-align: left; cursor: pointer;
+    }
+    .panel-head:focus-visible { outline: 2px solid var(--teal); outline-offset: -2px; border-radius: 16px; }
+    .titles { flex: 1; min-width: 0; white-space: nowrap; transition: opacity .2s var(--ease); }
+    .titles h1 { margin: 0; font-size: 15px; letter-spacing: .2px; }
+    .titles h1 span { color: var(--accent); }
+    .chev { flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center;
+      color: var(--muted); background: rgba(255,255,255,.05); transition: transform .28s var(--ease), background .15s; }
+    .panel-head:hover .chev { background: rgba(255,255,255,.1); color: var(--text); }
+    .panel-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .28s var(--ease), opacity .2s var(--ease); }
+    .panel-body > .inner { overflow: hidden; min-height: 0; }
+    .content { padding: 2px 14px 14px; }
+    .panel.collapsed { width: 58px; overflow: hidden; }
+    .panel.collapsed .titles { opacity: 0; }
+    .panel.collapsed .panel-body { grid-template-rows: 0fr; opacity: 0; }
+    .panel.collapsed .panel-head { padding: 12px; }
+    .panel.collapsed .chev { display: none; }
+    .views { grid-template-columns: repeat(3, 1fr); }
+    .views button { padding: 8px 2px 6px; gap: 4px; font-size: 11px; }
+    .views svg { width: 22px; height: 22px; }
+
+    /* Etiquetas 3D de la cancha */
+    .tag { font-size: 12px; white-space: nowrap; pointer-events: none; user-select: none; }
+    .tag.zone { color: #fff; font-weight: 600; text-shadow: 0 1px 3px rgba(0,0,0,.6); opacity: .9; }
+    .tag.line { color: #fff; font-size: 11px; background: rgba(0,0,0,.45); padding: 2px 6px; border-radius: 4px; }
+    .tag.obj { color: #fff; font-size: 11px; background: rgba(214,40,40,.85); padding: 2px 7px; border-radius: 10px; }
+
+    /* Etiquetas de los jugadores */
+    .jug-tag { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; pointer-events: auto;
+      user-select: none; transition: opacity .2s; font-family: system-ui, sans-serif; }
+    .jug-tag b { background: #15171a; color: #fff; border: 2px solid #e8a66b; font-size: 12px; padding: 1px 7px; border-radius: 9px; line-height: 1.3; }
+    .jug-tag.coloca b { border-color: #ffd166; }
+    .jug-tag.libero b { background: #f28c28; color: #1b1b1b; border-color: #fff; }
+    .jug-tag.rival b { background: #1f4fa0; border-color: #fff; }
+    .jug-tag i { font-style: normal; font-size: 10px; font-weight: 700; background: #fff; color: #1b1b1b; padding: 0 6px; border-radius: 8px; }
+    .jug-tag small { font-size: 10px; font-weight: 700; padding: 0 6px; border-radius: 8px; background: #5b6b73; color: #fff; }
+    .jug-tag small[data-f="coloca"] { background: #ffd166; color: #1b1b1b; }
+    .jug-tag small[data-f="recibe"] { background: #2ec4b6; color: #06201d; }
+    .jug-tag small[data-f="ataca"], .jug-tag small[data-f="1.er tiempo"] { background: #ef476f; }
+    .jug-tag.rival small { background: rgba(31,79,160,.85); }
+    .jug-tag.sel b { box-shadow: 0 0 0 3px #ffd166; }
+    .jug-tag.atenuada { opacity: .35; }
+
+    /* ---------- Simulación: rótulos superiores ---------- */
+    .sim-hud { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 11; display: flex; flex-wrap: wrap;
+      justify-content: center; gap: 6px; pointer-events: none; max-width: calc(100% - 620px); min-width: 340px; }
+    .fase { background: rgba(6,8,11,.82); border: 1px solid var(--border); padding: 6px 12px; border-radius: 999px;
+      font-size: 12.5px; font-weight: 600; text-align: center; backdrop-filter: blur(6px); }
+    .chip { font-size: 11.5px; padding: 5px 10px; border-radius: 999px; background: rgba(6,8,11,.82); border: 1px solid var(--border); }
+    .chip b { font-weight: 700; }
+    .chip.coloca b { color: #ffd166; }
+    .chip.recibe b { color: #2ec4b6; }
+    .flash { position: fixed; left: 50%; top: 16%; transform: translate(-50%, -50%) scale(.9); opacity: 0; z-index: 11;
+      background: #ffd166; color: #1b1b1b; font-weight: 800; font-size: 15px; padding: 8px 14px; border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.4); transition: opacity .15s, transform .15s; pointer-events: none; white-space: nowrap; }
+    .flash.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    .ficha { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--dock-h, 0px) + 12px); width: min(560px, calc(100% - 24px));
+      z-index: 11; background: rgba(10,16,20,.95); border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px 10px 14px;
+      font-size: 13px; line-height: 1.5; display: none; gap: 10px; align-items: flex-start; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+    .ficha.on { display: flex; }
+    .ficha p { margin: 0; flex: 1; }
+    .ficha b { color: var(--accent); }
+    .icon-btn { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+      background: rgba(255,255,255,.06); color: var(--text); border: 0; cursor: pointer; text-decoration: none; }
+    .icon-btn:hover { background: rgba(255,255,255,.12); }
+    .icon-btn svg { width: 18px; height: 18px; }
+
+    /* ---------- Simulación: panel inferior ---------- */
+    .dock { position: fixed; left: 50%; transform: translateX(-50%); bottom: 12px; z-index: 12; width: min(1000px, calc(100% - 24px));
+      background: var(--panel); border: 1px solid var(--border); border-radius: 16px; backdrop-filter: blur(12px);
+      box-shadow: 0 12px 32px rgba(0,0,0,.45); padding: 10px 12px; display: grid; gap: 8px; }
+    .fila { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .fila > * { min-width: 0; }
+    .seg.n2 { grid-template-columns: repeat(2, auto); }
+    .seg.n3 { grid-template-columns: repeat(3, auto); }
+    .dock .seg button { padding: 7px 10px; }
+    .rot { display: flex; gap: 4px; align-items: center; flex: 1; min-width: 220px; }
+    select { flex: 1; min-width: 0; appearance: none; font: inherit; font-size: 13px; color: var(--text);
+      background: rgba(0,0,0,.28) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238fa9a7' stroke-width='3'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center;
+      border: 1px solid var(--border); border-radius: 10px; padding: 8px 30px 8px 10px; cursor: pointer; }
+    select:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; }
+    select option { background: #0f181e; }
+    .play { display: flex; gap: 6px; }
+    .play .btn { padding: 9px 10px; }
+    .timeline { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 200px; }
+    .timeline input { flex: 1; accent-color: var(--teal); }
+    .timeline output { font: 600 11px system-ui; color: var(--muted); min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+    .pasos { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); padding: 0 48px 0 2px; margin-top: -4px; }
+    .pasos span.on { color: var(--accent); font-weight: 600; }
+    .lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+    .grupo { display: flex; align-items: center; gap: 6px; }
+
+    /* ---------- Pizarra 2D ---------- */
+    .vista2d { position: fixed; inset: 0; z-index: 5; background: radial-gradient(ellipse at 50% 40%, #12222a 0%, var(--bg) 75%);
+      padding: 54px 12px calc(var(--dock-h, 0px) + 20px); }
+    .vista2d[hidden] { display: none; }
+    #pizarra { width: 100%; height: 100%; touch-action: manipulation; user-select: none; }
+    #pizarra .tok circle.cuerpo { stroke-width: .07; }
+    #pizarra .tok text { font-weight: 800; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+    #pizarra .tok { cursor: pointer; transition: opacity .2s; }
+    #pizarra .tok.atenuado { opacity: .45; }
+    #pizarra .ruta { fill: none; stroke-width: .07; stroke-linecap: round; stroke-linejoin: round; transition: opacity .2s; }
+    #pizarra .ruta.atenuada { opacity: .12; }
+    #pizarra .ruta.sel { stroke: #ffd166 !important; stroke-width: .12; opacity: 1; }
+    body.vista-2d .labels { display: none; }
+
+    /* ---------- Detalles ---------- */
+    .info { position: fixed; right: 12px; bottom: calc(var(--dock-h, 0px) + 24px); width: 340px; max-height: calc(100dvh - var(--dock-h, 0px) - 90px);
+      overflow: auto; z-index: 13; background: var(--panel-solid); border: 1px solid var(--border); border-radius: 16px; padding: 12px 14px;
+      box-shadow: 0 12px 32px rgba(0,0,0,.5); display: none; }
+    .info.abierta { display: block; }
+    .estado { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 0; }
+    .dato { background: rgba(255,255,255,.05); border-radius: 10px; padding: 8px 10px; }
+    .dato dt { font-size: 10.5px; color: var(--muted); }
+    .dato dd { margin: 2px 0 0; font-size: 14px; font-weight: 700; }
+    .dato dd small { font-weight: 500; color: var(--muted); font-size: 11px; }
+    .planilla { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+    .planilla div { background: rgba(0,0,0,.28); border-radius: 8px; padding: 6px 8px; font-size: 12.5px; display: flex; gap: 6px; align-items: baseline; }
+    .planilla b { color: var(--muted); font-size: 11px; min-width: 12px; }
+    .planilla .lib { color: #f6a04d; }
+    .legal { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; line-height: 1.45; color: #cfe7e4; background: var(--teal-soft); padding: 8px 10px; border-radius: 10px; }
+    .legal.mal { background: rgba(214,40,40,.2); color: #ffd6d6; }
+    .legal svg { flex: none; width: 16px; height: 16px; margin-top: 1px; }
+    .nota { font-size: 11.5px; color: var(--muted); line-height: 1.5; margin: 8px 0 0; }
+    .desc { margin: 6px 0 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+
+    @media (max-width: 1180px) { .sim-hud { left: auto; right: 12px; transform: none; max-width: calc(100% - 320px); min-width: 0; justify-content: flex-end; } }
+
+    /* ---------- Teléfono vertical ---------- */
+    @media (max-width: 760px) {
+      .panel { top: 8px; left: 8px; }
+      .panel:not(.collapsed) { width: calc(100% - 16px); z-index: 14; }
+      .sim-hud { top: 8px; left: 70px; right: 8px; transform: none; max-width: none; justify-content: flex-start; }
+      .fase { font-size: 11px; padding: 4px 9px; }
+      .chip { font-size: 10.5px; padding: 3px 8px; }
+      .dock { left: 0; right: 0; bottom: 0; transform: none; width: auto; border-radius: 14px 14px 0 0; padding: 8px 8px max(8px, env(safe-area-inset-bottom)); gap: 6px; }
+      .lbl, .pasos, .ocultar-movil { display: none !important; }
+      .fila { gap: 6px; flex-wrap: wrap; }
+      .dock .seg { flex: 1; }
+      .dock .seg.n2 { grid-template-columns: 1fr 1fr; }
+      .dock .seg.n3 { grid-template-columns: 1fr 1fr 1fr; }
+      .dock .seg button { padding: 7px 4px; font-size: 12px; }
+      .rot { min-width: 0; flex: 1 1 100%; order: 5; }
+      .grupo { flex: 1 1 100%; }
+      select { font-size: 12px; padding: 7px 24px 7px 8px; background-position: right 7px center; }
+      .play { flex: 1 1 100%; }
+      .play .btn { padding: 8px; flex: none; }
+      .play .btn.primary { flex: 1; }
+      .play .btn.primary span { font-size: 12px; }
+      .timeline { min-width: 0; }
+      .solo-movil { display: grid !important; }
+      .info { left: 0; right: 0; bottom: var(--dock-h, 0px); width: auto; border-radius: 16px 16px 0 0; max-height: 70dvh; }
+      .vista2d { padding: 46px 4px calc(var(--dock-h, 0px) + 6px); }
+      .ficha { bottom: calc(var(--dock-h, 0px) + 6px); font-size: 12.5px; }
+      .flash { top: 13%; font-size: 13px; }
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="scene"></div>
+  <div class="vista2d" id="vista2d" hidden><svg id="pizarra" role="img" aria-label="Pizarra táctica de recepción"></svg></div>
+
+  <aside class="panel" id="panel">
+    <button class="panel-head" id="panel-toggle" aria-expanded="true" aria-controls="panel-body" title="Ocultar menú (M)">
+      <span class="logo" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 3c-1.5 3-1.5 6 0 9M12 12c3 1.5 6 1.5 8.6-.5M12 12c-2 2.5-5 3.5-8.3 3" />
+        </svg>
+      </span>
+      <span class="titles"><h1>Cancha de <span>Voleibol</span></h1></span>
+      <span class="chev" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+      </span>
+    </button>
+
+    <div class="panel-body" id="panel-body">
+      <div class="inner">
+        <div class="content">
+          <div class="section">
+            <div class="section-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V8M20 20V8M4 9h16M4 13h16M8 9v4M12 9v4M16 9v4"/></svg>
+              Altura de red
+            </div>
+            <div class="seg">
+              <button data-category="hombres" class="active">Hombres <small>2,43 m</small></button>
+              <button data-category="mujeres">Mujeres <small>2,24 m</small></button>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+              Cámara (arena 3D)
+            </div>
+            <div class="seg views">
+              <button data-view="tactica" title="Cámara táctica detrás del equipo receptor (1)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M6 20l3-14h6l3 14z"/><path d="M7.3 13h9.4"/></svg>
+                Táctica
+              </button>
+              <button data-view="diagonal" title="Vista diagonal (2)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 17l5-9h8l5 9z"/><path d="M12 8v9"/></svg>
+                Diagonal
+              </button>
+              <button data-view="superior" title="Vista superior (3)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="12" rx="1"/><path d="M12 6v12M9 6v12M15 6v12"/></svg>
+                Superior
+              </button>
+              <button data-view="lateral" title="Vista lateral (4)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 18h20"/><path d="M12 18V8"/><path d="M8 9h8v4H8z"/></svg>
+                Lateral
+              </button>
+              <button data-view="fondo" title="Vista desde el fondo (5)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 19h18"/><path d="M5 19V8M19 19V8"/><path d="M5 9h14v4H5z"/></svg>
+                Fondo
+              </button>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 12H4M14 6H4M18 18H4"/></svg>
+              Mostrar
+            </div>
+            <label class="switch">Mostrar partes de la cancha
+              <input type="checkbox" id="toggle-zones" checked /><span class="track"></span>
+            </label>
+            <label class="switch">Flechas de recorrido
+              <input type="checkbox" id="ver-flechas" checked /><span class="track"></span>
+            </label>
+            <label class="switch">Zonas 1–6 (pizarra 2D)
+              <input type="checkbox" id="ver-zonas2d" checked /><span class="track"></span>
+            </label>
+          </div>
+
+          <div class="help">
+            <b>Arrastrar</b> gira · <b>Rueda</b> zoom · <b>Clic derecho</b> mueve · <b>Toca un jugador</b> para ver su recorrido<br />
+            <kbd>Espacio</kbd> simular/pausar · <kbd>←</kbd><kbd>→</kbd> fotograma · <kbd>V</kbd> 2D/3D · <kbd>1</kbd>–<kbd>5</kbd> cámaras · <kbd>M</kbd> menú
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Rótulos de la jugada -->
+  <div class="sim-hud">
+    <div class="fase" id="fase">Antes del saque</div>
+    <span class="chip coloca">Coloca: <b id="chip-coloca">COL</b></span>
+    <span class="chip recibe"><span id="chip-recibe-txt">Recibe</span>: <b id="chip-recibe">L</b></span>
+  </div>
+  <div class="flash" id="flash">Contacto de saque</div>
+  <div class="ficha" id="ficha" role="status">
+    <p id="ficha-texto"></p>
+    <button class="icon-btn" id="ficha-cerrar" title="Cerrar" aria-label="Cerrar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+
+  <!-- Controles de la simulación -->
+  <section class="dock" id="dock" aria-label="Simulación de recepción">
+    <div class="fila">
+      <div class="seg n2" role="group" aria-label="Vista">
+        <button data-vista="3d" class="active">Arena 3D</button>
+        <button data-vista="2d">Pizarra 2D</button>
+      </div>
+      <div class="seg n3" role="group" aria-label="Sistema">
+        <button data-sistema="5-1" class="active">5-1</button>
+        <button data-sistema="6-2">6-2</button>
+        <button data-sistema="4-2">4-2</button>
+      </div>
+      <div class="rot">
+        <button class="icon-btn" id="rot-anterior" title="Rotación anterior" aria-label="Rotación anterior">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+        </button>
+        <select id="rotacion" aria-label="Rotación"></select>
+        <button class="icon-btn" id="rot-siguiente" title="Siguiente rotación (herramienta de estudio)" aria-label="Siguiente rotación">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+      <button class="icon-btn" id="abrir-info" title="Detalles de la rotación" aria-label="Detalles de la rotación">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>
+      </button>
+    </div>
+    <div class="fila">
+      <div class="grupo"><span class="lbl">Saque a la</span>
+        <div class="seg n3" role="group" aria-label="Destino del saque">
+          <button data-destino="izquierda">Izquierda</button>
+          <button data-destino="centro" class="active">Centro</button>
+          <button data-destino="derecha">Derecha</button>
+        </div>
+      </div>
+      <div class="play">
+        <button class="btn primary" id="simular" title="Simular saque (espacio)">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7z"/></svg><span>Simular saque</span>
+        </button>
+        <button class="btn" id="pausa" title="Pausar / continuar" aria-label="Pausar"></button>
+        <button class="btn" id="repetir" title="Repetir la jugada" aria-label="Repetir">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4"/></svg>
+        </button>
+        <button class="btn" id="paso-atras" title="Contacto anterior" aria-label="Contacto anterior">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg>
+        </button>
+        <button class="btn" id="paso" title="Siguiente contacto" aria-label="Siguiente contacto">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>
+        </button>
+      </div>
+      <div class="seg n3 ocultar-movil" role="group" aria-label="Velocidad">
+        <button data-vel="1" class="active" title="Velocidad normal">1×</button>
+        <button data-vel="0.5" title="Cámara lenta">½×</button>
+        <button data-vel="0.25" title="Muy lenta">¼×</button>
+      </div>
+    </div>
+    <div class="fila">
+      <div class="timeline">
+        <input type="range" id="tiempo" min="0" max="5" step="0.01" value="0" aria-label="Línea de tiempo" />
+        <output id="reloj">0,00 s</output>
+      </div>
+      <div class="seg n3 solo-movil" role="group" aria-label="Velocidad" style="display:none">
+        <button data-vel="1" class="active">1×</button>
+        <button data-vel="0.5">½×</button>
+        <button data-vel="0.25">¼×</button>
+      </div>
+    </div>
+    <div class="pasos" id="pasos"></div>
+  </section>
+
+  <!-- Detalles de la rotación -->
+  <section class="info" id="info" aria-label="Detalles de la rotación">
+    <div class="fila" style="justify-content: space-between; flex-wrap: nowrap">
+      <div class="section-title" style="margin:0" id="titulo-rotacion">Rotación 1</div>
+      <button class="icon-btn" id="cerrar-info" title="Cerrar" aria-label="Cerrar detalles">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <p class="desc" id="desc-sistema"></p>
+    <div class="section">
+      <dl class="estado">
+        <div class="dato"><dt>Coloca</dt><dd id="info-coloca"></dd></div>
+        <div class="dato"><dt>Primer toque</dt><dd id="info-recibe"></dd></div>
+      </dl>
+    </div>
+    <div class="section">
+      <div class="section-title">Orden de planilla</div>
+      <div class="planilla" id="planilla"></div>
+    </div>
+    <div class="section">
+      <div class="section-title">Regla 7.4 en el golpe de saque</div>
+      <div class="legal" id="legal"></div>
+    </div>
+    <p class="nota">Camiseta naranja: líbero. Anillo amarillo en el suelo: colocador activo. Anillo turquesa: responsable del primer toque.
+      «Siguiente rotación» es una herramienta de estudio: en un partido el equipo rota cuando gana la jugada mientras recibía y recupera el saque.</p>
+  </section>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

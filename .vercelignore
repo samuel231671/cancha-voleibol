@@ -1,0 +1,4 @@
+# Solo se publica la app estática
+blender/
+tests/
+servidor_dev.py
